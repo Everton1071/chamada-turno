@@ -289,7 +289,9 @@ const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;'
 const cor = id => `var(${TIPO[id].cor})`;
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function toast(msg){ const t = document.createElement('div'); t.className='toast'; t.textContent=msg; $('#toast-root').replaceChildren(t); setTimeout(()=>t.remove(), 2600); }
-function download(nome, conteudo, tipo){ const b = new Blob([conteudo],{type:tipo}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = nome; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();}, 500); }
+function download(nome, conteudo, tipo){
+  if(window.Android && Android.salvar){ Android.salvar(nome, btoa(unescape(encodeURIComponent(conteudo))), tipo); return; }
+  const b = new Blob([conteudo],{type:tipo}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = nome; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();}, 500); }
 async function copiar(txt){ try{ await navigator.clipboard.writeText(txt); toast('Copiado'); }catch(e){ abrirTexto('Copie o texto abaixo', txt); } }
 
 /* ============ navegação ============ */
@@ -581,7 +583,7 @@ function rRel(){
   </div>`;
   $('#r-prev').onclick = () => { state.mesRel = shiftMonth(state.mesRel,-1); render(); };
   $('#r-next').onclick = () => { state.mesRel = shiftMonth(state.mesRel,1); render(); };
-  $('#r-pdf').onclick = () => window.print();
+  $('#r-pdf').onclick = () => { if(window.Android && Android.imprimir) Android.imprimir(`Relatorio_${store.atual}_${k}`); else window.print(); };
   $('#r-xlsx').onclick = () => exportarExcel(c);
 }
 function exportarExcel(c){
@@ -603,7 +605,9 @@ function exportarExcel(c){
     ...c.doMes.slice().sort((a,b)=>a.data.localeCompare(b.data)).map(l=>[parse(l.data), l.ate?parse(l.ate):'', l.nome, TIPO[l.tipo].nome, l.parcial?'Parcial':'Turno inteiro', l.inicio, l.fim, l.medida, l.obs])];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(lan, {cellDates:true}), 'Lançamentos');
   wb.SheetNames.forEach(n => { const ws = wb.Sheets[n]; ws['!cols'] = [{wch:34},{wch:14},{wch:14},{wch:14},{wch:14},{wch:12},{wch:12},{wch:18},{wch:40},{wch:12}]; });
-  XLSX.writeFile(wb, `Relatorio_${setor.replace(/[^\wÀ-ú-]+/g,'_')}_${c.k}.xlsx`, {cellDates:true});
+  const nomeArq = `Relatorio_${setor.replace(/[^\wÀ-ú-]+/g,'_')}_${c.k}.xlsx`;
+  if(window.Android && Android.salvar){ Android.salvar(nomeArq, XLSX.write(wb, {bookType:'xlsx', type:'base64', cellDates:true}), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); return; }
+  XLSX.writeFile(wb, nomeArq, {cellDates:true});
 }
 
 /* ============ EQUIPE: escala, férias, admissão/desligamento ============ */
@@ -817,6 +821,10 @@ function rAjustes(){
   <div class="panel" style="display:grid;gap:12px"><h2>Apagar dados</h2>
     <p class="hint">Remove escala, equipe, férias e lançamentos do setor ${esc(store.atual)} neste aparelho. Os outros setores não mudam.</p>
     <div id="a-del-box"><button class="btn danger" id="a-del">Apagar tudo</button></div>
+  </div>
+  <div class="panel" style="display:grid;gap:10px"><h2>App para Android</h2>
+    <p class="hint">Instale como aplicativo no celular Android. Baixe o arquivo e toque nele para instalar (o Android pode pedir para permitir instalar deste navegador).</p>
+    <div><a class="btn primary" href="https://github.com/Everton1071/chamada-turno/releases/latest/download/ChamadaTurno.apk" target="_blank" rel="noopener" style="text-decoration:none">Baixar app Android (.apk)</a></div>
   </div>
   <p class="hint">Se cada setor usar o próprio celular, basta enviar o link do app: os dados ficam em cada aparelho e um não vê o do outro.</p>`;
   v.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => trocarSetor(b.dataset.ir));
