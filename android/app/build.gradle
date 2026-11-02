@@ -12,10 +12,11 @@ android {
     }
     signingConfigs {
         release {
-            storeFile file('chamada-turno.keystore')
-            storePassword 'chamadaturno'
+            // A chave vem dos Secrets do GitHub (ver .github/workflows/apk.yml), nunca do código.
+            storeFile System.getenv('KEYSTORE_FILE') ? file(System.getenv('KEYSTORE_FILE')) : null
+            storePassword System.getenv('KEYSTORE_PASSWORD')
             keyAlias 'chamadaturno'
-            keyPassword 'chamadaturno'
+            keyPassword System.getenv('KEYSTORE_PASSWORD')
         }
     }
     buildTypes {

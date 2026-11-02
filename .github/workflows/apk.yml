@@ -11,28 +11,55 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
     steps:
+      # A chave de assinatura fica nos Secrets do repositório (Settings > Secrets and variables > Actions),
+      # nunca no código. Sem ela, o APK não é gerado e o app web continua funcionando normalmente.
+      - name: Verificar chave de assinatura
+        id: chave
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::warning::Secrets ANDROID_KEYSTORE_BASE64 e ANDROID_KEYSTORE_PASSWORD não configurados. APK não gerado."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.chave.outputs.ok == 'true'
+
+      - name: Restaurar chave de assinatura
+        if: steps.chave.outputs.ok == 'true'
+        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
       - uses: actions/setup-java@v4
+        if: steps.chave.outputs.ok == 'true'
         with:
           distribution: temurin
           java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v4
+        if: steps.chave.outputs.ok == 'true'
         with:
           gradle-version: '8.7'
 
       - name: Compilar o APK
+        if: steps.chave.outputs.ok == 'true'
         working-directory: android
         env:
           VERSION_CODE: ${{ github.run_number }}
+          KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: gradle assembleRelease --no-daemon
 
       - name: Preparar arquivo
+        if: steps.chave.outputs.ok == 'true'
         run: cp android/app/build/outputs/apk/release/app-release.apk ChamadaTurno.apk
 
       - name: Publicar para download
+        if: steps.chave.outputs.ok == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-android

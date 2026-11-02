@@ -155,6 +155,7 @@ tr:nth-child(even) td{background:var(--sunk)}
 .empty{border:2px dashed var(--line);border-radius:var(--r);padding:22px;text-align:center;display:grid;gap:10px;justify-items:center;color:var(--muted)}
 .empty strong{color:var(--ink);font-family:var(--f-display);font-size:1.3rem;text-transform:uppercase;letter-spacing:.03em}
 .notice{border-radius:8px;padding:10px 12px;font-size:.9rem}
+.bkp-aviso{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;margin-bottom:16px}
 .notice.warn{background:var(--warn-bg)} .notice.crit{background:var(--crit-bg)} .notice.ok{background:var(--ok-bg)}
 
 /* relatório */
@@ -204,6 +205,7 @@ tr:nth-child(even) td{background:var(--sunk)}
 </header>
 
 <main class="wrap">
+  <div class="notice warn bkp-aviso" id="bkp-aviso" hidden></div>
   <section class="view" id="v-turno"></section>
   <section class="view" id="v-lancamentos" hidden></section>
   <section class="view" id="v-relatorio" hidden></section>
@@ -240,10 +242,21 @@ let db = store.setores[store.atual];
 function loadStore(){
   try{ const r = localStorage.getItem(KEY); if(r){ const s = JSON.parse(r); const b = blankStore();
     for(const n of Object.keys(s.setores||{})) b.setores[n] = Object.assign(blank(n), s.setores[n]);
-    b.atual = b.setores[s.atual] ? s.atual : 'Acondicionamento'; return b; } }catch(e){}
+    b.atual = b.setores[s.atual] ? s.atual : 'Acondicionamento'; b.ultimoBackup = s.ultimoBackup || ''; return b; } }catch(e){}
   return blankStore();
 }
 function save(){ store.setores[store.atual] = db; try{ localStorage.setItem(KEY, JSON.stringify(store)); }catch(e){ toast('Não consegui salvar neste navegador. Faça um backup em Ajustes.'); } }
+/* ============ backup ============ */
+function fazerBackup(){ save(); const hoje = iso(new Date());
+  download(`backup_chamada_turno_${hoje}.json`, JSON.stringify(Object.assign({}, store, {ultimoBackup: hoje})), 'application/json');
+  store.ultimoBackup = hoje; save(); render(); }
+function diasDesdeBackup(){ if(!store.ultimoBackup) return null;
+  return Math.floor((new Date(iso(new Date())+'T12:00') - new Date(store.ultimoBackup+'T12:00')) / 864e5); }
+function temDados(){ return Object.values(store.setores).some(x => !x.exemplo && (x.lanc.length || Object.keys(x.meses).length || x.ferias.length)); }
+function avisoBackup(){ const el = $('#bkp-aviso'), d = diasDesdeBackup();
+  if(!temDados() || (d !== null && d < 7)){ el.hidden = true; el.innerHTML = ''; return; }
+  el.innerHTML = `<span>${d === null ? 'Você ainda não fez nenhum backup.' : `Último backup há <b>${d} dias</b>.`} Os dados ficam só neste aparelho: se o app for desinstalado, eles se perdem.</span><button class="btn primary" id="bkp-agora">Fazer backup agora</button>`;
+  el.hidden = false; $('#bkp-agora').onclick = fazerBackup; }
 function trocarSetor(n){ save(); store.atual = n; db = store.setores[n]; try{ localStorage.setItem(KEY, JSON.stringify(store)); }catch(e){}
   state.dia = turnoAtual(); state.mesRel = monthKey(state.dia); state.mesLista = state.mesRel; state.filtro = {tipo:'', nome:'', pend:false}; render(); }
 
@@ -317,6 +330,7 @@ function render(){
   $('#band-sub').textContent = 'Laticínios Jussara · Turno da noite · ' + (db.config.turno||'23h00 às 07h20');
   const pend = db.lanc.filter(l=>l.tipo==='ausencia').length;
   $('#badge-pend').hidden = !pend; $('#badge-pend').textContent = pend;
+  avisoBackup();
   ({turno:rTurno, lancamentos:rLanc, relatorio:rRel, equipe:rEquipe, ajustes:rAjustes})[v]();
 }
 
@@ -821,6 +835,7 @@ function rAjustes(){
   </div>
   <div class="panel" style="display:grid;gap:12px"><h2>Backup</h2>
     <p class="hint">Os dados ficam só neste aparelho e neste navegador. Faça um backup toda semana e guarde o arquivo. Ele inclui todos os setores. Para passar para outro aparelho, restaure o backup nele.</p>
+    <p class="hint">Último backup: <b>${store.ultimoBackup ? br(store.ultimoBackup) : 'nunca'}</b></p>
     <div class="row"><button class="btn primary" id="a-bkp">Baixar backup</button>
       <label class="btn" style="cursor:pointer">Restaurar backup<input type="file" id="a-rest" accept=".json" hidden></label></div>
     <div id="a-msg"></div>
@@ -839,7 +854,7 @@ function rAjustes(){
     if(Object.keys(store.setores).some(x=>norm(x)===norm(n))){ toast('Esse setor já existe.'); return; }
     store.setores[n] = blank(n); trocarSetor(n); toast(`Setor ${n} criado`); };
   $('#a-save').onclick = () => { c.turno=$('#a-turno').value.trim()||'23h00 às 07h20'; c.quadroIdeal=$('#a-qi').value; c.limiteFaltas=$('#a-lim').value||3; save(); toast('Ajustes salvos'); render(); };
-  $('#a-bkp').onclick = () => { save(); download(`backup_chamada_turno_${iso(new Date())}.json`, JSON.stringify(store), 'application/json'); };
+  $('#a-bkp').onclick = fazerBackup;
   $('#a-rest').onchange = e => { const f = e.target.files[0]; if(!f) return; const r = new FileReader();
     r.onload = () => { try{ const d = JSON.parse(r.result); if(!d.setores) throw 0;
       const tot = Object.values(d.setores).reduce((s,x)=>s+(x.lanc||[]).length,0);
