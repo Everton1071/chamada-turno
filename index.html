@@ -1,5 +1,8 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Chamada do Turno</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <meta name="theme-color" content="#0A1A33">
 <meta name="description" content="Chamada do turno da noite da Usina de Laticínios Jussara: escala de folgas, ocorrências e relatório mensal por setor.">
 <link rel="manifest" href="manifest.json">
@@ -34,7 +37,11 @@
   --c-treinamento:#B39DEB; --c-feriado:#5BCB85; --c-exame:#A3CF5E; --c-folga:#6D7A8F; --c-ferias:#E8B54A;
   --warn-bg:#3A2E10; --crit-bg:#3B1B18; --ok-bg:#12301F; --shadow:0 1px 2px rgba(0,0,0,.4); color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
+:root{padding-top:env(safe-area-inset-top,0px)}
 html,body{background:var(--bg);color:var(--ink)}
+body{margin:0}
+img{max-width:100%}
 body{font-family:var(--f-body);font-size:15px;line-height:1.45;padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--brand)}
 h1,h2,h3{font-family:var(--f-display);letter-spacing:.01em;margin:0;text-wrap:balance}
