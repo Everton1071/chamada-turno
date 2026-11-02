@@ -30,9 +30,15 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.chave.outputs.ok == 'true'
 
+      # Aceita o secret colado só com o valor ou com o arquivo .txt inteiro (linhas "Nome:" e "Valor:").
       - name: Restaurar chave de assinatura
         if: steps.chave.outputs.ok == 'true'
-        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+        run: |
+          printf '%s\n' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r' | awk '{ if (length($0) > length(m)) m = $0 } END { print m }' | tr -d ' \t' | base64 -d > "$RUNNER_TEMP/release.keystore"
+          SENHA=$(printf '%s\n' "$ANDROID_KEYSTORE_PASSWORD" | tr -d '\r' | grep -v '^Nome:' | grep -v '^Valor' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | tail -n 1)
+          echo "::add-mask::$SENHA"
+          echo "KEYSTORE_PASSWORD=$SENHA" >> "$GITHUB_ENV"
+          keytool -list -keystore "$RUNNER_TEMP/release.keystore" -storepass "$SENHA" > /dev/null && echo "Chave conferida."
 
       - uses: actions/setup-java@v4
         if: steps.chave.outputs.ok == 'true'
@@ -51,7 +57,6 @@ jobs:
         env:
           VERSION_CODE: ${{ github.run_number }}
           KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: gradle assembleRelease --no-daemon
 
       - name: Preparar arquivo
