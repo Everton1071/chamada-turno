@@ -397,11 +397,23 @@ function bindTurno(){
   });
   $('#copiar-dia',v) && ($('#copiar-dia',v).onclick = () => copiar(resumoDia(state.dia)));
 }
+const PLURAL = {ausencia:'ausências', falta:'faltas', atestado:'atestados', banco:'banco de horas', suspensao:'suspensões',
+  treinamento:'em treinamento', abono_feriado:'abonos feriado', abono_exame:'abonos exame médico'};
+const SINGULAR = {treinamento:'em treinamento'};
+const nomeProprio = n => String(n).toLowerCase().split(' ').map((w,i) => i && /^(de|da|do|das|dos|e)$/.test(w) ? w : w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
+/* Resumo no formato usado no grupo: setor e data, folgas, ocorrências com nomes, total do setor */
 function resumoDia(d){
   const info = diaInfo(d), nomes = nomesDoMes(monthKey(d));
-  const linhas = [];
-  nomes.forEach(n => lancDoDia(n,d).forEach(l => linhas.push(`• ${n} — ${TIPO[l.tipo].nome}${l.parcial?` (parcial ${l.inicio||''}–${l.fim||''})`:''}${l.obs?` — ${l.obs}`:''}`)));
-  return `Laticínios Jussara · ${store.atual} — turno da noite ${br(d)} (${WD[parse(d).getDay()]})\nEscalados: ${info.esperado} | Presentes: ${info.real} | Ausentes: ${info.ausentes} | Folga/férias: ${info.folgas+info.ferias}\n${linhas.length ? '\nOcorrências:\n'+linhas.join('\n') : '\nSem ocorrências.'}`;
+  const porTipo = {};
+  nomes.forEach(n => lancDoDia(n,d).forEach(l => { (porTipo[l.tipo] ||= []).push(nomeProprio(n) + (l.parcial ? ` (parcial${l.inicio||l.fim?` ${l.inicio||''}–${l.fim||''}`:''})` : '')); }));
+  const blocos = [`${store.atual} ${br(d).slice(0,5)}`, `${info.folgas} de folga`];
+  if(info.ferias) blocos.push(`${info.ferias} de férias`);
+  const tipos = TIPOS.filter(t => porTipo[t.id]);
+  if(tipos.length) tipos.forEach(t => { const q = porTipo[t.id].length;
+    blocos.push(`${q} ${q>1 ? PLURAL[t.id] : (SINGULAR[t.id] || t.nome.toLowerCase())}\n${porTipo[t.id].join('\n')}`); });
+  else blocos.push('Nenhuma ausência');
+  blocos.push(`${info.esperado + info.folgas + info.ferias} colaboradores no setor`);
+  return blocos.join('\n\n');
 }
 
 /* ============ folha de lançamento ============ */
