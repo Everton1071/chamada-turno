@@ -412,7 +412,7 @@ function resumoDia(d){
   if(tipos.length) tipos.forEach(t => { const q = porTipo[t.id].length;
     blocos.push(`${q} ${q>1 ? PLURAL[t.id] : (SINGULAR[t.id] || t.nome.toLowerCase())}\n${porTipo[t.id].join('\n')}`); });
   else blocos.push('Nenhuma ausência');
-  blocos.push(`${info.esperado + info.folgas + info.ferias} colaboradores no setor`);
+  blocos.push(`${info.real} colaboradores no setor`);
   return blocos.join('\n\n');
 }
 
