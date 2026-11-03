@@ -783,7 +783,7 @@ function interpretar(rows, mes){
   /* setor: texto no topo da planilha, na coluna dos nomes ou na primeira coluna */
   let setor = '';
   for(let r=0; r<hr; r++){ for(const c of [0, colNome]){ const v = (rows[r]||[])[c];
-    if(typeof v==='string' && v.trim() && !v.trim().startsWith('#') && !/^(NOMES?|COLABORADOR(ES)?|FUNCIONARIOS?|TURNOS?|MATRICULA)$/.test(norm(semAcento(v)))){ setor = v.replace(/\s*-+\s*/g,' · ').trim(); break; } } }
+    if(typeof v==='string' && v.trim() && !v.trim().startsWith('#') && !PALAVRAS_CABECALHO.test(norm(semAcento(v)))){ setor = v.replace(/\s*-+\s*/g,' · ').trim(); break; } } }
   /* mês escrito no arquivo (ex.: NOVEMBRO) */
   let mesArquivo = -1;
   for(let r=0; r<=hr && mesArquivo<0; r++) for(const v of (rows[r]||[])){ if(typeof v!=='string') continue;

@@ -1,5 +1,5 @@
 // Guarda o app no aparelho para abrir mesmo sem internet.
-const CACHE = 'chamada-turno-v3';
+const CACHE = 'chamada-turno-v4';
 const ARQUIVOS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQUIVOS)).then(() => self.skipWaiting())));
