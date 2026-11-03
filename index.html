@@ -638,10 +638,10 @@ function rEquipe(){
   v.innerHTML = `
   <div class="panel" style="display:grid;gap:12px">
     <h2>Arquivo de folgas do mês</h2>
-    <p class="hint">Use o arquivo da empresa: setor na linha 4, dias do mês na linha 5, nomes a partir da linha 7 e "F" nas folgas. As férias você informa abaixo.</p>
+    <p class="hint">Serve qualquer modelo de escala: o app procura sozinho a linha com os dias do mês (1, 2, 3...), a coluna com os nomes e as folgas marcadas com F, FG ou FOLGA. Antes de salvar, ele mostra o que leu para você conferir. As férias você informa abaixo.</p>
     <div class="grid2">
       <label class="f">Mês do arquivo<input type="month" id="e-mes" value="${state.mesImport||monthKey(turnoAtual())}"></label>
-      <label class="f">Arquivo (.xlsx ou .xls)<input type="file" id="e-file" accept=".xlsx,.xlsm,.xls"></label>
+      <label class="f">Arquivo (.xlsx, .xls, .ods ou .csv)<input type="file" id="e-file" accept=".xlsx,.xlsm,.xls,.ods,.csv"></label>
     </div>
     <div id="e-prev"></div>
     ${meses.length ? `<div><div class="eyebrow" style="margin-bottom:6px">Meses carregados</div><div class="list">${meses.map(k=>`<div class="item" style="cursor:default"><span class="main"><span class="t1">${monthName(k)}</span><br><span class="t2">${db.meses[k].nomes.length} colaboradores${db.meses[k].arquivo?` · ${esc(db.meses[k].arquivo)}`:''}</span></span><button class="btn ghost" data-delmes="${k}">Remover</button></div>`).join('')}</div></div>` : ''}
@@ -703,38 +703,117 @@ function lerArquivo(file, mes){
   rd.onload = () => {
     try{
       const wb = XLSX.read(new Uint8Array(rd.result), {type:'array'});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null, blankrows:true});
-      const p = interpretar(rows, mes); p.arquivo = file.name; previa(p);
-    }catch(err){ $('#e-prev').innerHTML = `<div class="notice crit">Não consegui ler este arquivo. Confira se é a escala de folgas no formato da empresa (.xlsx). Detalhe: ${esc(err.message)}</div>`; }
+      const p = interpretarPasta(wb, mes); p.arquivo = file.name; previa(p);
+    }catch(err){ $('#e-prev').innerHTML = `<div class="notice crit">Não consegui ler este arquivo: ${esc(err.message)} Confira se é uma escala de folgas com os dias do mês numa linha (1, 2, 3...) e os nomes numa coluna.</div>`; }
   };
   rd.readAsArrayBuffer(file);
 }
+/* Lê todas as abas e fica com a que tiver mais colaboradores. */
+function interpretarPasta(wb, mes){
+  let melhor = null, erro = null;
+  for(const nomeAba of wb.SheetNames){
+    const ws = wb.Sheets[nomeAba]; if(!ws || !ws['!ref']) continue;
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null, blankrows:true});
+    try{ const p = interpretar(rows, mes); p.aba = nomeAba; p.abas = wb.SheetNames.length;
+      if(!melhor || p.nomes.length > melhor.nomes.length) melhor = p; }
+    catch(e){ erro = erro || e; }
+  }
+  if(!melhor) throw erro || new Error('a planilha está vazia.');
+  return melhor;
+}
+/* ---- leitura flexível da escala ---- */
+const semAcento = s => String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'');
+const codigo = v => semAcento(v).toUpperCase().replace(/[\s.\-_*]/g,'');
+const CODIGOS_FOLGA = new Set(['F','FG','FL','FO','FOL','FOLG','FOLGA','DSR','DESCANSO','FD']);
+const PALAVRAS_CABECALHO = /^(NOMES?|COLABORADOR(ES)?|FUNCIONARIOS?|EMPREGADOS?|ENCARREGADOS?|TURNOS?|SETOR(ES)?|MATRICULA|CHAPA|CARGO|FUNCAO|DIAS?|MES|TOTAL.*|ASSINATURA.*|VISTO.*|OBS.*|LEGENDA.*)$/;
+const NAO_E_PESSOA = /^(VAGO|VAGA|AFASTAD[OA]|EM ABERTO|-+)$/;
+/* número do dia numa célula do cabeçalho: 1, "01", "1º", data do Excel ou texto 01/11 */
+function diaDaCelula(v){
+  if(v==null || v==='') return 0;
+  if(v instanceof Date) return v.getDate();
+  if(typeof v==='number'){
+    if(Number.isInteger(v) && v>=1 && v<=31) return v;
+    if(v>20000 && v<80000 && typeof XLSX!=='undefined' && XLSX.SSF){ const d = XLSX.SSF.parse_date_code(v); return d ? d.d : 0; }
+    return 0;
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{1,2})\s*(º|°|ª)?$/); if(m){ const n = +m[1]; return n>=1 && n<=31 ? n : 0; }
+  m = s.match(/^(\d{1,2})[\/\-.]\d{1,2}([\/\-.]\d{2,4})?$/); if(m){ const n = +m[1]; return n>=1 && n<=31 ? n : 0; }
+  return 0;
+}
+/* acha a linha com a maior sequência de dias 1, 2, 3... (pode haver colunas vazias ou mescladas entre eles) */
+function acharDias(rows){
+  let best = null;
+  const lim = Math.min(rows.length, 60);
+  for(let r=0; r<lim; r++){ const row = rows[r]||[];
+    for(let c=0; c<row.length; c++){
+      if(diaDaCelula(row[c])!==1) continue;
+      const cols = [c]; let esperado = 2, vazias = 0;
+      for(let x=c+1; x<row.length && esperado<=31; x++){
+        const d = diaDaCelula(row[x]);
+        if(d===esperado){ cols.push(x); esperado++; vazias = 0; }
+        else if(row[x]==null || row[x]===''){ if(++vazias>2) break; }
+        else break;
+      }
+      if(cols.length>=7 && (!best || cols.length>best.cols.length)) best = {r, cols};
+    }
+  }
+  return best;
+}
+const pareceNome = v => { if(typeof v!=='string') return false; const s = norm(semAcento(v).replace(/^\s*\d+\s*[-–.:)]?\s*/,''));
+  return s.length>=3 && /[A-Z]{2}/.test(s) && !/\d{3,}/.test(s) && !PALAVRAS_CABECALHO.test(s) && !NAO_E_PESSOA.test(s) && !CODIGOS_FOLGA.has(codigo(s)); };
+const limparNome = v => norm(String(v).replace(/^\s*\d+\s*[-–.:)]\s*/,'').replace(/^\s*\d+\s+(?=[A-Za-zÀ-ú])/,''));
 function interpretar(rows, mes){
-  /* acha a linha com os dias 1, 2, 3... */
-  let hr = -1, c1 = -1;
-  for(let r=0; r<Math.min(rows.length,20) && hr<0; r++){ const row = rows[r]||[];
-    for(let c=0; c<row.length-2; c++){ if(Number(row[c])===1 && Number(row[c+1])===2 && Number(row[c+2])===3){ hr=r; c1=c; break; } } }
-  if(hr<0) throw new Error('não encontrei a linha com os dias 1, 2, 3.');
+  const dias = acharDias(rows);
+  if(!dias) throw new Error('não encontrei a linha com os dias do mês (1, 2, 3...).');
+  const hr = dias.r, cols = dias.cols, c1 = cols[0], ultima = cols[cols.length-1];
   const nd = daysIn(mes);
+  /* coluna dos nomes: a que tem mais nomes abaixo dos dias, à esquerda do dia 1 (ou à direita do último dia) */
+  const candidatas = [];
+  for(let c=0; c<c1; c++) candidatas.push(c);
+  for(let c=ultima+1; c<ultima+4; c++) candidatas.push(c);
+  /* pontua cada coluna: nomes diferentes contam mais, e nome com sobrenome (com espaço) vale o dobro;
+     assim uma coluna de turno ou cargo ("Tarde", "Operador") não ganha da coluna de nomes */
+  let colNome = -1, maxN = 0;
+  for(const c of candidatas){ const vistos = new Set(); let n = 0;
+    for(let r=hr+1; r<rows.length; r++){ const v = (rows[r]||[])[c]; if(!pareceNome(v)) continue;
+      const k = limparNome(v); if(vistos.has(k)) continue; vistos.add(k); n += k.includes(' ') ? 2 : 1; }
+    if(n>maxN || (n===maxN && n>0 && Math.abs(c-c1)<Math.abs(colNome-c1))){ maxN = n; colNome = c; } }
+  if(colNome<0) throw new Error('encontrei os dias, mas nenhuma coluna com nomes de colaboradores.');
+  /* setor: texto no topo da planilha, na coluna dos nomes ou na primeira coluna */
   let setor = '';
-  for(let r=0; r<hr; r++){ const v = (rows[r]||[])[0]; if(typeof v==='string' && v.trim() && !v.startsWith('#')) setor = v.replace(/\s*-+\s*/g,' · ').trim(); }
-  const wdRow = rows[hr+1]||[]; const letra1 = String(wdRow[c1]||'').trim().toUpperCase();
-  const avisoSemana = letra1 && letra1 !== WD1[parse(`${mes}-01`).getDay()] ? `A linha dos dias da semana começa com "${letra1}", mas o dia 1 de ${monthName(mes)} é ${WD[parse(`${mes}-01`).getDay()].toLowerCase()}. Confira se escolheu o mês certo.` : '';
-  const nomes = [], folgas = {};
+  for(let r=0; r<hr; r++){ for(const c of [0, colNome]){ const v = (rows[r]||[])[c];
+    if(typeof v==='string' && v.trim() && !v.trim().startsWith('#') && !/^(NOMES?|COLABORADOR(ES)?|FUNCIONARIOS?|TURNOS?|MATRICULA)$/.test(norm(semAcento(v)))){ setor = v.replace(/\s*-+\s*/g,' · ').trim(); break; } } }
+  /* mês escrito no arquivo (ex.: NOVEMBRO) */
+  let mesArquivo = -1;
+  for(let r=0; r<=hr && mesArquivo<0; r++) for(const v of (rows[r]||[])){ if(typeof v!=='string') continue;
+    const s = semAcento(v).toUpperCase(); const i = MESES.findIndex(m => new RegExp(`\\b${semAcento(m).toUpperCase()}\\b`).test(s)); if(i>=0){ mesArquivo = i; break; } }
+  const avisos = [];
+  const mesNum = Number(mes.slice(5))-1;
+  if(mesArquivo>=0 && mesArquivo!==mesNum) avisos.push(`O arquivo diz <b>${MESES[mesArquivo]}</b>, mas o mês escolhido é <b>${monthName(mes)}</b>. Confira o mês antes de salvar.`);
+  else if(cols.length>=28 && cols.length!==nd) avisos.push(`O arquivo tem ${cols.length} dias, mas ${monthName(mes)} tem ${nd}. Confira o mês antes de salvar.`);
+  /* linha dos dias da semana (logo abaixo ou acima dos números) */
+  const wd0 = WD1[parse(`${mes}-01`).getDay()];
+  for(const rr of [hr+1, hr-1]){ const l = codigo((rows[rr]||[])[c1]);
+    if(/^(D|S|T|Q|DOM|SEG|TER|QUA|QUI|SEX|SAB)$/.test(l)){ if(l[0]!==wd0 && !(mesArquivo>=0 && mesArquivo!==mesNum)) avisos.push(`A linha dos dias da semana começa com "${l}", mas o dia 1 de ${monthName(mes)} é ${WD[parse(`${mes}-01`).getDay()].toLowerCase()}. Confira se escolheu o mês certo.`); break; } }
+  /* colaboradores e folgas */
+  const nomes = [], folgas = {}, outros = {};
+  let ignorados = 0;
   for(let r=hr+1; r<rows.length; r++){
-    const row = rows[r]||[]; const raw = row[c1-1];
-    if(typeof raw!=='string' || !raw.trim()) continue;
-    const nome = norm(raw); if(/^TOTAL/.test(nome)) break;
-    if(r===hr+1 && nome.length<=2) continue;
+    const row = rows[r]||[]; const raw = row[colNome];
+    if(typeof raw==='string' && /^TOTA/.test(norm(semAcento(raw)))) break;
+    if(!pareceNome(raw)){ if(typeof raw==='string' && NAO_E_PESSOA.test(norm(semAcento(raw)))) ignorados++; continue; }
+    const nome = limparNome(raw);
     if(nomes.includes(nome)) continue;
-    nomes.push(nome);
     const fs = [];
-    for(let d=1; d<=nd; d++){ const v = String(row[c1+d-1]??'').trim().toUpperCase(); if(v==='F') fs.push(d); }
-    folgas[nome] = fs;
+    cols.forEach((c,i) => { const d = i+1; if(d>nd) return; const cod = codigo(row[c]);
+      if(!cod) return;
+      if(CODIGOS_FOLGA.has(cod)) fs.push(d);
+      else if(!/^(X|T|M|N|P|OK|\d+)$/.test(cod)){ (outros[cod] ||= {}); outros[cod][nome] = (outros[cod][nome]||0)+1; } });
+    nomes.push(nome); folgas[nome] = fs;
   }
   if(!nomes.length) throw new Error('não encontrei nomes abaixo da linha dos dias.');
-  return {mes, nomes, folgas, setor, avisoSemana};
+  return {mes, nomes, folgas, setor, avisos, outros, ignorados};
 }
 function previa(p){
   const conhecidos = new Set(Object.keys(db.pessoas));
@@ -746,8 +825,12 @@ function previa(p){
   box.innerHTML = `<div class="panel" style="display:grid;gap:12px;background:var(--sunk)">
     <div class="eyebrow">Conferência antes de salvar</div>
     <h3 style="font-size:1.25rem">${monthName(p.mes)} · ${p.nomes.length} colaboradores${p.setor?` · ${esc(p.setor)}`:''}</h3>
-    ${p.avisoSemana?`<div class="notice warn">${esc(p.avisoSemana)}</div>`:''}
-    ${p.setor && !norm(p.setor).includes(norm(store.atual)) ? `<div class="notice crit">O arquivo diz "<b>${esc(p.setor)}</b>", mas o setor escolhido no app é <b>${esc(store.atual)}</b>. Troque o setor no topo se este arquivo for de outro setor.</div>`:''}
+    ${p.abas>1?`<div class="hint">Lido da aba <b>${esc(p.aba)}</b>.${p.ignorados?` ${p.ignorados} linha(s) VAGO ignorada(s).`:''}</div>`:(p.ignorados?`<div class="hint">${p.ignorados} linha(s) VAGO ignorada(s).</div>`:'')}
+    ${(p.avisos||[]).map(a=>`<div class="notice warn">${a}</div>`).join('')}
+    ${Object.keys(p.outros||{}).length?`<div class="notice warn"><b>Marcações que não são folga</b> (não entram como folga; lance em Turno se precisar):<br>${Object.entries(p.outros).map(([cod,quem])=>`<b>${esc(cod)}</b>: ${Object.entries(quem).map(([n,q])=>`${esc(n)} (${q} dia${q>1?'s':''})`).join(', ')}`).join('<br>')}</div>`:''}
+    <details><summary class="hint" style="cursor:pointer">Ver folgas lidas de cada colaborador</summary>
+      <div class="list" style="margin-top:8px">${p.nomes.map(n=>`<div class="item" style="cursor:default"><span class="main"><span class="t1">${esc(n)}</span><br><span class="t2 num">${p.folgas[n].length?`Folgas: ${p.folgas[n].join(', ')}`:'Sem folga marcada'}</span></span></div>`).join('')}</div></details>
+    ${p.setor && !norm(p.setor).includes(norm(store.atual)) ? `<div class="notice warn">O topo do arquivo diz "<b>${esc(p.setor)}</b>" e o setor escolhido no app é <b>${esc(store.atual)}</b>. Se for de outro setor ou turno, troque no topo ou crie um setor novo em Ajustes antes de salvar.</div>`:''}
     ${db.meses[p.mes]?`<div class="notice warn">Já existe escala para ${monthName(p.mes)}. Ela será substituída. Os lançamentos não mudam.</div>`:''}
     ${novos.length&&conhecidos.size?`<div><b>Novos na escala (${novos.length})</b><p class="hint">Informe a admissão (primeiro dia no efetivo). Em branco, conta o mês todo.</p>
       <div class="list">${novos.map(n=>`<div class="item" style="cursor:default"><span class="main t1">${esc(n)}</span><input type="date" data-novo="${esc(n)}" style="width:auto" aria-label="Admissão de ${esc(n)}"></div>`).join('')}</div></div>`:''}
